@@ -121,12 +121,23 @@ class FSDPInference(FSDPActor):
                 actor_shard_off, inference_shard_off, need_size = self._actor_dst_map[
                     actor_rank
                 ][k]
-                inference_flat[
-                    inference_shard_off : inference_shard_off + need_size
-                ].copy_(
-                    actor_flat[actor_shard_off : actor_shard_off + need_size],
-                    non_blocking=True,
-                )
+                try:
+                    inference_flat[
+                        inference_shard_off : inference_shard_off + need_size
+                    ].copy_(
+                        actor_flat[actor_shard_off : actor_shard_off + need_size],
+                        non_blocking=True,
+                    )
+                except Exception as exc:
+                    raise RuntimeError(
+                        "FSDP actor->inference shard sync failed for "
+                        f"key={k}, actor_rank={actor_rank}, "
+                        f"inference_numel={inference_flat.numel()}, "
+                        f"actor_numel={actor_flat.numel()}, "
+                        f"actor_shard_off={actor_shard_off}, "
+                        f"inference_shard_off={inference_shard_off}, "
+                        f"need_size={need_size}"
+                    ) from exc
 
         self.torch_platform.synchronize()
         torch.distributed.barrier()

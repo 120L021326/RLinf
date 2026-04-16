@@ -22,7 +22,12 @@ from omegaconf import DictConfig
 from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
-from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForVision2Seq
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoModelForVision2Seq,
+    AutoTokenizer,
+)
 
 from rlinf.config import SupportedModel, get_supported_model, torch_dtype_from_precision
 from rlinf.data.tokenizers import hf_tokenizer
@@ -88,8 +93,29 @@ class FSDPModelManager:
         )
         self.amp_context = self._create_amp_context()
 
-        Worker.torch_platform.set_device(int(os.environ["LOCAL_RANK"]))
+        local_rank = int(os.environ["LOCAL_RANK"])
+        cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "<unset>")
+        pre_set_device = (
+            Worker.torch_platform.current_device()
+            if Worker.torch_platform.is_available()
+            else "<unavailable>"
+        )
+        Worker.torch_platform.set_device(local_rank)
         self.device = Worker.torch_platform.current_device()
+        device_debug_msg = (
+            f"[{type(self).__name__} rank={rank}] "
+            f"LOCAL_RANK={local_rank}, WORLD_SIZE={world_size}, "
+            f"CUDA_VISIBLE_DEVICES={cuda_visible_devices}, "
+            f"pre_set_device={pre_set_device}, current_device={self.device}, "
+            f"device_count={torch.cuda.device_count()}"
+        )
+        debug_dir = "/workspace/RLinf/debug_model_shapes"
+        os.makedirs(debug_dir, exist_ok=True)
+        debug_path = f"{debug_dir}/{type(self).__name__}_{rank}_device_debug.txt"
+        with open(debug_path, "w", encoding="utf-8") as f:
+            f.write(device_debug_msg + "\n")
+        print(device_debug_msg, flush=True)
+        self._logger.info(device_debug_msg)
 
         self.is_weight_offloaded = False
         self.is_optimizer_offloaded = False
@@ -175,6 +201,44 @@ class FSDPModelManager:
         if cfg.fsdp_config.use_liger_kernel:
             self._optimize_with_liger_kernel(model)
 
+        # role_name = type(self).__name__
+        # model_path = cfg.model.model_path
+        # try:
+        #     tokenizer = AutoTokenizer.from_pretrained(
+        #         model_path,
+        #         use_fast=False,
+        #         trust_remote_code=True,
+        #     )
+        #     tokenizer_len = len(tokenizer)
+        # except Exception as exc:
+        #     tokenizer_len = f"<failed: {exc}>"
+
+        # model_vocab_size = getattr(getattr(model, "config", None), "vocab_size", None)
+        # text_vocab_size = getattr(
+        #     getattr(getattr(model, "config", None), "text_config", None),
+        #     "vocab_size",
+        #     None,
+        # )
+        # input_embeddings = model.get_input_embeddings()
+        # input_shape = (
+        #     tuple(input_embeddings.weight.shape)
+        #     if input_embeddings is not None and hasattr(input_embeddings, "weight")
+        #     else None
+        # )
+        # output_embeddings = model.get_output_embeddings()
+        # output_shape = (
+        #     tuple(output_embeddings.weight.shape)
+        #     if output_embeddings is not None and hasattr(output_embeddings, "weight")
+        #     else None
+        # )
+        # debug_msg = (
+        #     f"[{role_name} rank={self._rank}] model_path={model_path}, "
+        #     f"tokenizer_len={tokenizer_len}, config.vocab_size={model_vocab_size}, "
+        #     f"text_config.vocab_size={text_vocab_size}, "
+        #     f"input_embeddings={input_shape}, output_embeddings={output_shape}"
+        # )
+        # self._logger.info(debug_msg)
+
         return model
 
     def _optimize_with_liger_kernel(self, model: torch.nn.Module) -> None:
@@ -211,6 +275,7 @@ class FSDPModelManager:
                 SupportedModel.QWEN2_5: apply_liger_kernel_to_qwen2,
                 SupportedModel.QWEN2_5_VL: apply_liger_kernel_to_qwen2_5_vl,
                 SupportedModel.QWEN2_5_VL_SFT: apply_liger_kernel_to_qwen2_5_vl,
+                SupportedModel.QWEN3_VL: apply_liger_kernel_to_qwen3_vl,
                 SupportedModel.QWEN3_VL_SFT: apply_liger_kernel_to_qwen3_vl,
                 SupportedModel.QWEN3_MOE: apply_liger_kernel_to_qwen3_moe,
                 SupportedModel.QWEN3_VL_MOE_SFT: apply_liger_kernel_to_qwen3_vl_moe,

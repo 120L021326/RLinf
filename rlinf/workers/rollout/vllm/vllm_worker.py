@@ -137,6 +137,9 @@ class VLLMWorker(Worker):
                 logprobs=0 if self._return_logprobs else None,
             )
         else:
+            stop_token_ids = cfg_sampling_params.get("stop_token_ids", None)
+            if stop_token_ids is not None:
+                stop_token_ids = list(stop_token_ids)
             sampling_params = SamplingParams(
                 temperature=cfg_sampling_params.temperature,
                 top_k=cfg_sampling_params.top_k,
@@ -144,6 +147,7 @@ class VLLMWorker(Worker):
                 repetition_penalty=cfg_sampling_params.repetition_penalty,
                 max_tokens=cfg_sampling_params.max_new_tokens,
                 logprobs=0 if self._return_logprobs else None,
+                stop_token_ids=stop_token_ids,
             )
         return sampling_params
 

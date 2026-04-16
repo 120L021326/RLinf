@@ -24,6 +24,7 @@ from torch import nn
 from torch.distributed.tensor import DTensor
 from torch.multiprocessing.reductions import reduce_tensor
 from torch.utils import _pytree
+from transformers import AutoTokenizer
 
 import rlinf.algorithms  # noqa: F401
 from rlinf.algorithms.registry import calculate_adv_and_returns, policy_loss
@@ -165,8 +166,11 @@ class FSDPActor(FSDPModelManager, Worker):
         self._rollout_group_name = cfg.rollout.group_name
         self._component_placement = placement
         self.is_pipeline = self._component_placement.is_disaggregated
+        self.has_dedicated_inference = (
+            self._component_placement.has_dedicated_actor_inference
+        )
         self.ref_policy_state_dict = None
-        if self.is_pipeline:
+        if self.has_dedicated_inference:
             self._inference_group_name = cfg.inference.group_name
             self._inference_world_size = self._component_placement.get_world_size(
                 "inference"
@@ -205,8 +209,8 @@ class FSDPActor(FSDPModelManager, Worker):
         Initialize the actor worker. build the model and use corresponding training backend
         (FSDP/FSDP2) to wrap it. If needed, offload model parameters and optimizer states to CPU.
         If kl_beta > 0, retrieve the reference policy model state dict to CPU.
-        If mode is disaggregated, setup which inference ranks it needs to sync weights to by
-        doing a handshake with inference workers.
+        If dedicated inference workers are configured, setup which inference ranks it needs to
+        sync weights to by doing a handshake with inference workers.
         """
         self.setup_model_and_optimizer()
         if (
@@ -242,6 +246,12 @@ class FSDPActor(FSDPModelManager, Worker):
         The model state_dict is the reference of actor's model
         parameters(by setting cpu_offload=False).
         """
+        if not self.has_dedicated_inference:
+            self.log_debug(
+                "Skip sync_model_to_inference because no dedicated inference component is configured."
+            )
+            return
+
         if not self._inference_dst_map:
             self._strategy.setup_actor_sync_inference_ranks(self)
 
@@ -323,7 +333,7 @@ class FSDPActor(FSDPModelManager, Worker):
             self.load_param_and_grad(self.device, False)
 
         self.rollout_state_dict = self.get_model_state_dict(
-            cpu_offload=False, full_state_dict=False
+            cpu_offload=True, full_state_dict=False
         )
 
         has_visual = any("visual." in k for k in self.rollout_state_dict.keys())
@@ -1056,6 +1066,50 @@ class EmbodiedFSDPActor(FSDPModelManager, Worker):
         if self.cfg.runner.get("ckpt_path", None):
             model_dict = torch.load(self.cfg.runner.ckpt_path)
             model.load_state_dict(model_dict)
+
+        model_path = self.cfg.actor.model.model_path
+        role_name = type(self).__name__
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_path,
+                use_fast=False,
+                trust_remote_code=True,
+            )
+            tokenizer_len = len(tokenizer)
+        except Exception as exc:
+            tokenizer_len = f"<failed: {exc}>"
+
+        model_vocab_size = getattr(getattr(model, "config", None), "vocab_size", None)
+        text_vocab_size = getattr(
+            getattr(getattr(model, "config", None), "text_config", None),
+            "vocab_size",
+            None,
+        )
+        input_embeddings = model.get_input_embeddings()
+        input_shape = (
+            tuple(input_embeddings.weight.shape)
+            if input_embeddings is not None and hasattr(input_embeddings, "weight")
+            else None
+        )
+        output_embeddings = model.get_output_embeddings()
+        output_shape = (
+            tuple(output_embeddings.weight.shape)
+            if output_embeddings is not None and hasattr(output_embeddings, "weight")
+            else None
+        )
+        debug_msg = (
+            f"[{role_name} rank={self._rank}] model_path={model_path}, "
+            f"tokenizer_len={tokenizer_len}, config.vocab_size={model_vocab_size}, "
+            f"text_config.vocab_size={text_vocab_size}, "
+            f"input_embeddings={input_shape}, output_embeddings={output_shape}"
+        )
+        debug_dir = "/workspace/RLinf/debug_model_shapes"
+        os.makedirs(debug_dir, exist_ok=True)
+        debug_path = f"{debug_dir}/{role_name}_{self._rank}_model_debug.txt"
+        with open(debug_path, "w", encoding="utf-8") as f:
+            f.write(debug_msg + "\n")
+        print(debug_msg, flush=True)
+        self.log_info(debug_msg)
 
         return model
 

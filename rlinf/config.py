@@ -45,8 +45,10 @@ class SupportedModel(Enum):
     # Reasoning models
     QWEN2_5 = ("qwen2.5", "reasoning")
     QWEN2_5_VL = ("qwen2.5_vl", "reasoning")
+    QWEN3_VL = ("qwen3_vl", "reasoning")
     QWEN3 = ("qwen3", "reasoning")
     QWEN3_MOE = ("qwen3_moe", "reasoning")
+    ALPAMAYO_R1 = ("alpamayo_r1", "reasoning")
 
     # Embodied models
     OPENVLA = ("openvla", "embodied")
@@ -84,7 +86,7 @@ def get_supported_model(model_type: str) -> SupportedModel:
         ) from err
 
 
-SUPPORTED_ROLLOUT_BACKENDS = ["sglang", "vllm"]
+SUPPORTED_ROLLOUT_BACKENDS = ["sglang", "vllm", "alpamayo"]
 SUPPORTED_TASK_TYPE = [
     "embodied",
     "reasoning",

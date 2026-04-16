@@ -135,12 +135,14 @@ class SGLangWorker(Worker):
                 "max_new_tokens": cfg_sampling_params.max_new_tokens,
             }
         else:
+            stop_token_ids = cfg_sampling_params.get("stop_token_ids", None)
             sampling_params = {
                 "temperature": cfg_sampling_params.temperature,
                 "top_k": cfg_sampling_params.top_k,
                 "top_p": cfg_sampling_params.top_p,
                 "repetition_penalty": cfg_sampling_params.repetition_penalty,
                 "max_new_tokens": cfg_sampling_params.max_new_tokens,
+                "stop_token_ids": stop_token_ids if stop_token_ids is not None else [],
             }
         return sampling_params
 

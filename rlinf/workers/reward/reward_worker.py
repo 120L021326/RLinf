@@ -121,9 +121,11 @@ class RewardWorker(Worker):
     def _compute_rule_based_rewards(self, rollout_result: RolloutResult):
         # Decode only the generated tokens; response_ids are already the post-prompt tokens
         texts = rollout_result.response_texts
+        keep_special_tokens = self.cfg.reward.reward_type == "alpamayo_format"
         if texts is None:
             texts = self.tokenizer.batch_decode(
-                rollout_result.response_ids, skip_special_tokens=True
+                rollout_result.response_ids,
+                skip_special_tokens=not keep_special_tokens,
             )
 
         kwargs = {}

@@ -315,7 +315,7 @@ class DisaggRankMapper(RankMapper):
         return (weight_dst_dp_rank_in_rollout, weight_dst_tp_rank_in_rollout)
 
 
-SUPPORTED_LLM_ROLLOUT_BACKENDS = ["vllm", "sglang"]
+SUPPORTED_LLM_ROLLOUT_BACKENDS = ["vllm", "sglang", "alpamayo"]
 
 
 def get_rollout_backend_worker(cfg: DictConfig) -> Worker:
@@ -337,6 +337,10 @@ def get_rollout_backend_worker(cfg: DictConfig) -> Worker:
         from rlinf.workers.rollout.sglang.sglang_worker import SGLangWorker
 
         return SGLangWorker
+    elif rollout_backend == "alpamayo":
+        from rlinf.workers.rollout.alpamayo.alpamayo_worker import AlpamayoWorker
+
+        return AlpamayoWorker
 
 
 class RunningStatusManager:

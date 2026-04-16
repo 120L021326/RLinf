@@ -14,11 +14,18 @@
 
 from omegaconf import DictConfig
 
+from rlinf.config import SupportedModel, get_supported_model
 from rlinf.scheduler.worker.worker import Worker
 
 
 def get_actor_worker(cfg: DictConfig) -> Worker:
     if cfg.actor.training_backend == "fsdp":
+        model_type = get_supported_model(cfg.actor.model.model_type)
+        if model_type == SupportedModel.ALPAMAYO_R1:
+            from .alpamayo_fsdp_actor_worker import AlpamayoFSDPActor
+
+            return AlpamayoFSDPActor
+
         from .fsdp_actor_worker import FSDPActor
 
         return FSDPActor
